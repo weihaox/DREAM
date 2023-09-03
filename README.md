@@ -18,14 +18,14 @@
 ---
 
 <h4 align="center">
-  <a href="https://weihaox.github.io/projects/DREAM.html" target='_blank'>[Project Page]</a> •
+  <a href="https://weihaox.github.io/DREAM.html" target='_blank'>[Project Page]</a> •
   <a href="" target='_blank'>[arXiv]</a> <br> <br>
   <img src="https://visitor-badge.laobi.icu/badge?page_id=weihaox/DREAM" width="8%" alt="visitor badge"/>
 </h4>
 
 </div>
 
->**Abstract:** In this work we present DREAM, an fMRI-to-image method for reconstructing viewed images from brain activities, grounded on fundamental knowledge of the human visual system (HVS). We craft reverse pathways that emulate the hierarchical and parallel nature of how humans perceive the visual world. These tailored pathways are specialized to decipher semantics, color, and depth cues from fMRI data, mirroring the forward pathways from visual stimuli to fMRI recordings. To do so, two components mimic the inverse processes within the HVS: the Reverse Visual Association Cortex (R-VAC) which reverses pathways of this brain region, extracting semantics from fMRI data; the Reverse Parallel PKM (R-PKM) component simultaneously predicting color and depth from fMRI. The final images are reconstructed by the Color Adapter (C-A) and the Depth Adapter (D-A) in T2I-Adapter in conjunction with SD from deciphered semantics, color, and depth cues.
+>**Abstract:** In this work we present DREAM, Visual Decoding from REversing HumAn Visual SysteM. DREAM is an fMRI-to-image method for reconstructing viewed images from brain activities, grounded on fundamental knowledge of the human visual system (HVS). We craft reverse pathways that emulate the hierarchical and parallel nature of how humans perceive the visual world. These tailored pathways are specialized to decipher semantics, color, and depth cues from fMRI data, mirroring the forward pathways from visual stimuli to fMRI recordings. To do so, two components mimic the inverse processes within the HVS: the Reverse Visual Association Cortex (R-VAC) which reverses pathways of this brain region, extracting semantics from fMRI data; the Reverse Parallel PKM (R-PKM) component simultaneously predicting color and depth from fMRI. The final images are reconstructed by the Color Adapter (C-A) and the Depth Adapter (D-A) in T2I-Adapter in conjunction with SD from deciphered semantics, color, and depth cues.
 
 <div align="center">
 <tr>
