@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1>DREAM: Visual Decoding from Reversing Human Visual System</h1>
+<h2>DREAM: Visual Decoding from Reversing Human Visual System</h2>
 
 <div>
     <a href='https://weihaox.github.io/' target='_blank'>Weihao Xia</a><sup>1</sup>&emsp;
