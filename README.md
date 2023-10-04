@@ -18,7 +18,7 @@
 
 <h4 align="center">
   <a href="https://weihaox.github.io/DREAM" target='_blank'>[Project Page]</a> •
-  <a href="" target='_blank'>[arXiv]</a> <br> <br>
+  <a href="https://arxiv.org/pdf/2310.02265" target='_blank'>[arXiv]</a> <br> <br>
   <img src="https://visitor-badge.laobi.icu/badge?page_id=weihaox/DREAM" width="8%" alt="visitor badge"/>
 </h4>
 
