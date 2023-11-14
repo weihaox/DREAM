@@ -34,7 +34,7 @@
 </div>
 
 ## News :triangular_flag_on_post:
-
+- [2022/11/14] Add instructions for R-VAC and R-PKM.
 - [2022/10/23] DREAM is accepted by WACV 2024.
 - [2023/10/03] Both <a href="https://weihaox.github.io/DREAM">project</a> and <a href="https://arxiv.org/abs/2310.02265">arXiv</a> are available.
 
@@ -46,15 +46,11 @@ Please follow the [Installation Instruction](https://github.com/weihaox/DREAM/bl
 
 ### R-VAC
 
-Reverse VAC replicates the opposite operations of the VAC brain region, analogously extracting semantics (in the form of CLIP embedding) from fMRI.
-
-> TBD
+Please refer to [R-VAC](./src/R-PKM/README.md) for more details.
 
 ### R-PKM 
 
-Reverse PKM maps fMRI to color and depth in the form of spatial palettes and depth maps to facilitate subsequent processing by the Color Adapter (C-A) and the Depth Adapter (D-A) in T2I-Adapter in conjunction with SD for image reconstruction from deciphered semantics, color, and depth cues.
-
-> TBD
+Please refer to [R-PKM](./src/R-PKM/README.md) for more details on data preprocessing and code structure.
 
 ## Reconstructing from pre-trained DREAM (GIR)
 
@@ -67,18 +63,19 @@ The scripts for assessing reconstructed images using the identical low- and high
 
 Regarding the evaluation of depth and color, we use metrics from depth estimation and color correction to assess depth and color consistencies in the reconstructed images. The depth metrics include Abs Rel (absolute error), Sq Rel (squared error), RMSE (root mean squared error), and RMSE log (root mean squared logarithmic error). For color assessment, we use CD (Color Discrepancy) and STRESS (Standardized Residual Sum of Squares). Please consult the [supplementary material](https://arxiv.org/pdf/2310.02265.pdf) for details.
 
-For depth assessment, we first use a depth estimation method (specifically, MiDaS) to obtain the depth maps for both reconstructed and ground-truth image. We then derive quantitative results by running the following:
+For depth, we first use a depth estimation method (specifically, [MiDaS](https://github.com/isl-org/MiDaS)) to obtain depth maps for both reconstructed and ground-truth images. We then derive quantitative results by running the following:
 ```bash
 python src/evaluation/cal_depth_metric.py --method ${METHOD_NAME}  --save_csv ${SAVE_CSV_OR_NOT} \
     --mode ${DEPTH_AS_UNIT8_OR_FLOAT32} \
     --all_images_path ${PATH_TO_GT_IMAGE} --recon_path ${PATH_TO_RECONSTRUCTED_IMAGE} 
 ``` 
 
-For evaluation, we utilize the following script to obtain the CD and STRESS results:
+For color, we utilize the following script to obtain the CD and STRESS results:
 ```bash
 python src/evaluation/cal_color_metric.py --method ${METHOD_NAME} --save_csv ${SAVE_CSV_OR_NOT} \
     --all_images_path ${PATH_TO_GT_IMAGE} --recon_path ${PATH_TO_RECONSTRUCTED_IMAGE} 
 ``` 
+We have also included an additional [color relevance](https://github.com/weihaox/DREAM/blob/main/src/evaluation/cal_color_metric.py#L111) metric (CD) based on Hellinger distance.
 
 ## References
 - Codes in R-VAC are based on [MedARC-AI/fMRI-reconstruction-NSD](https://github.com/MedARC-AI/fMRI-reconstruction-NSD)
