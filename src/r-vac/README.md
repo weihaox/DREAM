@@ -6,6 +6,10 @@ We basically adopt the same code as [MindEye](https://medarc-ai.github.io/mindey
 
 To run R-VAC, please implement the following minimal changes to the MindEye training [script](https://github.com/MedARC-AI/fMRI-reconstruction-NSD/blob/main/src/Train_MindEye.py).
 
+- download MindEye:
+```bash
+git clone https://github.com/MedARC-AI/fMRI-reconstruction-NSD
+```
 - disable prior: set `--prior` as `False`.
 - modify losses: add text similarity in `v2c` ([loss_nce_sum](https://github.com/MedARC-AI/fMRI-reconstruction-NSD/blob/main/src/Train_MindEye.py#L634))
 

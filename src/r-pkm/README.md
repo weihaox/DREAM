@@ -4,7 +4,7 @@ Reverse PKM (R-PKM) maps fMRI to color and depth in the form of spatial palettes
 
 <div align="center">
 <tr>
-    <img src="docs/images/RPKM_result.png" width="90%"/>
+    <img src="https://github.com/weihaox/DREAM/blob/main/docs/images/RPKM_result.png" width="90%"/>
 </tr>
 </div>
 

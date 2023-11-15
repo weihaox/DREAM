@@ -46,11 +46,11 @@ Please follow the [Installation Instruction](https://github.com/weihaox/DREAM/bl
 
 ### R-VAC
 
-Please refer to [R-VAC](./src/R-PKM/README.md) for more details.
+Please refer to [R-VAC](https://github.com/weihaox/DREAM/blob/main/src/r-vac/README.md) for more details.
 
 ### R-PKM 
 
-Please refer to [R-PKM](./src/R-PKM/README.md) for more details on data preprocessing and code structure.
+Please refer to [R-PKM](https://github.com/weihaox/DREAM/blob/main/src/r-pkm/README.md) for more details on data preprocessing and code structure.
 
 ## Reconstructing from pre-trained DREAM (GIR)
 
