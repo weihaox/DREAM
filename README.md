@@ -19,6 +19,7 @@
 
 <h4 align="center">
   <a href="https://weihaox.github.io/DREAM" target='_blank'>[Project Page]</a> •
+  <a href="https://www.youtube.com/watch?v=cUdkeigISOo" target='_blank'>[Video]</a>  •
   <a href="https://arxiv.org/pdf/2310.02265" target='_blank'>[arXiv]</a> <br> <br>
   <img src="https://visitor-badge.laobi.icu/badge?page_id=weihaox/DREAM" width="8%" alt="visitor badge"/>
 </h4>
@@ -50,7 +51,7 @@ Please refer to [R-VAC](https://github.com/weihaox/DREAM/blob/main/src/r-vac/REA
 
 ### R-PKM 
 
-Please refer to [R-PKM](https://github.com/weihaox/DREAM/blob/main/src/r-pkm/README.md) for more details on data preprocessing and code structure.
+Please refer to [R-PKM](https://github.com/weihaox/DREAM/blob/main/src/r-pkm/README.md) for more details on data preprocessing and training instruction.
 
 ## Reconstructing from pre-trained DREAM (GIR)
 
