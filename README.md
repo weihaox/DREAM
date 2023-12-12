@@ -47,11 +47,55 @@ Please follow the [Installation Instruction](https://github.com/weihaox/DREAM/bl
 
 ### R-VAC
 
-Please refer to [R-VAC](https://github.com/weihaox/DREAM/blob/main/src/r-vac/README.md) for more details.
+R-VAC (Reverse VAC) replicates the opposite operations of the VAC brain region, analogously extracting semantics (in the form of CLIP embedding) from fMRI. 
+
+To train R-VAC, please first download "Natural Scenes Dataset" and "COCO_73k_annots_curated.npy" file from [NSD HuggingFace](https://huggingface.co/datasets/pscotti/naturalscenesdataset/tree/main) to `nsd_data`, then use the following command to run R-VAC training
+```
+python train_dream_rvac.py --data_path nsd_data
+```
+
+We basically adopt the same code as [MindEye](https://medarc-ai.github.io/mindeye/)'s high-level pipeline without the diffusion prior and utilize different dimensions. Specifically, fMRI voxels are processed by the MLP backbone and MLP projector to produce the CLIP fMRI embedding, and are trained with a data-augmented contrastive learning loss. The additional MLP projector helps capture meaningful semantics. We did not employ a Prior. The role of the Prior (regardless of the performance gain in MindEye) appears to be substitutable by the MLP projector with MSE losses. In our work, we focus solely on text embedding and disjointed issues of text and image embeddings are not our concerns.
+
+Empirically, The predicted CLIP-text embedding sometimes would not significantly affect results, with the dominance lying in the depth and color guidances. The reconstructed results from T2I-Adapter, as we mentioned in the ablation study, are not very "stable" and requires mannual adjustments to get pleasing results in certain cases. 
 
 ### R-PKM 
 
-Please refer to [R-PKM](https://github.com/weihaox/DREAM/blob/main/src/r-pkm/README.md) for more details on data preprocessing and training instruction.
+R-PKM (Reverse PKM) maps fMRI to color and depth in the form of spatial palettes and depth maps.
+
+#### Data Acquisition and Preprocessing
+
+For the training of the encoder in stage 1 and the decoder in stage 2, we use MiDaS-estimated depth maps as the surrogate ground-truth depth. Please process the NSD images accordingly.
+
+For the training of the decoder in stage 3, please process additional natural images from sources like [ImageNet](https://www.image-net.org/), [LAION](https://laion.ai/), or others to obtain their estimated depth maps.
+
+#### Training and Testing
+
+The architectures of Encoder and Decoder are built on top of [SelfSuperReconst](https://github.com/WeizmannVision/SelfSuperReconst), with inspirations drawn from [VDVAE](https://github.com/openai/vdvae). The Encoder training is implemented in `train_encoder.py` and the Decoder training is implemented in `train_decoder.py`. 
+
+Train RGB-only Encoder (supervised-only):
+```bash
+python $(scripts/train_enc_rgbd.sh)
+```
+Then train RGB-only Decoder (supervised + self-supervised):
+```bash
+python $(scripts/train_dec_rgbd.sh)
+```
+Please refer to their implementations for further details.
+
+If you don't have enough resources for training the models, an alternative computationally-efficient way is to use regression models. Specifically, you can use a similar way employed in [StableDiffusionReconstruction](https://github.com/yu-takagi/StableDiffusionReconstruction) or [brain-diffuser](https://github.com/ozcelikfu/brain-diffuser) to first extract latent features of stimuli images and depth estimations from [VDVAE](https://github.com/openai/vdvae) for any subject 'x' and then learn regression models from fMRI to VDVAE latent features and save test predictions. The final RGBD outcomes can be reconstructed from the predicted test features. 
+
+The color information deciphered from the fMRI data is in the form of spatial palettes. These spatial palettes can be obtained by first downsampling (with bicubic interpolation) a predicted image and then upsampling (with nearest interpolation) it back to its original resolution, as shown above.
+
+```python
+def get_cond_color(cond_image, mask_size=64):
+    H, W = cond_image.size
+    cond_image = cond_image.resize((W // mask_size, H // mask_size), Image.BICUBIC)
+    color = cond_image.resize((H, W), Image.NEAREST)
+    return color
+```
+
+The predicted RGBD are then used to facilitate subsequent image reconstruction by the Color Adapter (C-A) and the Depth Adapter (D-A) in T2I-Adapter in conjunction with SD. Depite coarse results, the predicted depth is sufficient in most cases to guide the scene structure and object position such as determining the location of an airplane or the orientation of a bird standing on a branch. Similarly, despite not precisely preserving the local color, the estimated color palette provide a reliable constraint and guidance on the overall scene appearance. Below are some examples.
+
 
 ## Reconstructing from pre-trained DREAM (GIR)
 
