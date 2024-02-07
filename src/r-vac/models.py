@@ -17,21 +17,18 @@ class Clipper(torch.nn.Module):
         if clip_variant=="ViT-L/14" and hidden_state:
             from transformers import CLIPVisionModelWithProjection
             image_encoder = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14").eval()
-            # image_encoder = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-large-patch14",cache_dir="/fsx/proj-medarc/fmri/cache")
-            #from transformers import CLIPVisionModelWithProjection
-            #sd_cache_dir = '/fsx/proj-medarc/fmri/cache/models--shi-labs--versatile-diffusion/snapshots/2926f8e11ea526b562cd592b099fcf9c2985d0b7'
-            #image_encoder = CLIPVisionModelWithProjection.from_pretrained(sd_cache_dir, subfolder='image_encoder').eval()
+            
             image_encoder = image_encoder.to(device)
             for param in image_encoder.parameters():
-                param.requires_grad = False # dont need to calculate gradients
+                param.requires_grad = False 
             self.image_encoder = image_encoder
         elif hidden_state:
             raise Exception("hidden_state embeddings only works with ViT-L/14 right now")
         
         clip_model, preprocess = clip.load(clip_variant, device=device)
-        clip_model.eval() # dont want to train model
+        clip_model.eval() 
         for param in clip_model.parameters():
-            param.requires_grad = False # dont need to calculate gradients
+            param.requires_grad = False
             
         self.clip = clip_model
         self.clip_variant = clip_variant
@@ -41,7 +38,7 @@ class Clipper(torch.nn.Module):
             self.clip_size = (224,224)
             
         preproc = transforms.Compose([
-            transforms.Resize(size=self.clip_size[0], interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.Resize(size=self.clip_size[0], interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
             transforms.CenterCrop(size=self.clip_size),
             transforms.Normalize(mean=(0.48145466, 0.4578275, 0.40821073), std=(0.26862954, 0.26130258, 0.27577711))
         ])

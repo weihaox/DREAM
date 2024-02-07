@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import argparse
 import numpy as np
 from tqdm import tqdm
@@ -14,8 +15,8 @@ torch.backends.cuda.matmul.allow_tf32 = True
 
 # multi-GPU config
 from accelerate import Accelerator
-accelerator = Accelerator(split_batches=False,mixed_precision='fp16')  
-print("PID of this process =",os.getpid())
+accelerator = Accelerator(split_batches=False, mixed_precision='fp16')  
+print("PID of this process =", os.getpid())
 print = accelerator.print # only print if local_rank=0
 device = accelerator.device
 print("device:",device)
@@ -31,28 +32,41 @@ print("distributed =",distributed, "num_devices =", num_devices, "local rank =",
 # configurations
 parser = argparse.ArgumentParser(description="Model Training Configuration")
 parser.add_argument("--model_name", type=str, default="dream_rvac_training_demo", help="name of model, used for ckpt saving")
-parser.add_argument("--data_path", type=str, default="nsd_data", help="Path to where NSD data is stored / where to download it to")
-parser.add_argument("--subj",type=int, default=1, choices=[1, 2, 5, 7])
-parser.add_argument("--batch_size", type=int, default=320, help="Batch size for training")
-parser.add_argument("--hidden", action=argparse.BooleanOptionalAction, default=False, help="if True, CLIP embeddings are from last hidden layer (257x768) rather than final layer (1x768)")
+parser.add_argument("--data_path", type=str, default="nsd_data", help="Path to NSD data")
+parser.add_argument("--caption_path", type=str, default="nsd_data/COCO_73k_annots_curated.npy")
+parser.add_argument("--subj", type=int, default=1, choices=[1, 2, 5, 7])
+parser.add_argument("--batch_size", type=int, default=2048, help="Batch size for training")
 parser.add_argument("--clip_variant", type=str, default="ViT-L/14", choices=["RN50", "ViT-L/14", "ViT-B/32", "RN50x64"])
-parser.add_argument("--norm_embs", action=argparse.BooleanOptionalAction, default=False, help="Do l2-norming of CLIP embeddings")
-parser.add_argument("--use_image_aug", action=argparse.BooleanOptionalAction, default=True, help="whether to use image augmentation",)
 parser.add_argument("--num_epochs", type=int, default=240, help="number of epochs of training")
-parser.add_argument("--plot_umap", action=argparse.BooleanOptionalAction, default=False, help="Plot UMAP plots alongside reconstructions")
 parser.add_argument("--lr_scheduler_type", type=str, default='cycle', choices=['cycle', 'linear'])
-parser.add_argument("--ckpt_saving", action=argparse.BooleanOptionalAction, default=True)
 parser.add_argument("--ckpt_interval", type=int, default=5, help="save backup ckpt and reconstruct every x epochs",)
-parser.add_argument("--save_at_end", action=argparse.BooleanOptionalAction, default=False)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--max_lr", type=float, default=3e-4)
+parser.add_argument("--rec_loss_weight", type=float, default=30.0, help="multiplier for reconstruction loss")
+parser.add_argument("--use_nce_loss", type=bool, default=True, help="whether to use NCE loss")
+parser.add_argument("--use_rec_loss", type=bool, default=True, help="whether to use reconstruction loss")
+parser.add_argument("--hidden", action=argparse.BooleanOptionalAction, default=False, help="if True, CLIP from last hidden layer (257x768) rather than final layer (1x768)")
+parser.add_argument("--norm_embs", action=argparse.BooleanOptionalAction, default=False, help="Do l2-norming of CLIP embeddings")
+parser.add_argument("--use_image_aug", action=argparse.BooleanOptionalAction, default=True, help="whether to use image augmentation")
 parser.add_argument("--use_projector", action=argparse.BooleanOptionalAction, default=True)
+parser.add_argument("--plot_umap", action=argparse.BooleanOptionalAction, default=True, help="Plot UMAP plots alongside reconstructions")
+parser.add_argument("--ckpt_saving", action=argparse.BooleanOptionalAction, default=True)
+parser.add_argument("--save_at_end", action=argparse.BooleanOptionalAction, default=False)
 args = parser.parse_args()
 
 # create global variables without the args prefix
 for attribute_name in vars(args).keys():
     globals()[attribute_name] = getattr(args, attribute_name)
-    
+
+outdir = os.path.abspath(f'../train_logs/{model_name}')
+if not os.path.exists(outdir):
+    os.makedirs(outdir,exist_ok=True)
+
+# save config in a json file
+args_dict = vars(args)
+with open(os.path.join(outdir, 'config.json'), 'w') as file:
+    json.dump(args_dict, file, indent=4)
+
 # need non-deterministic CuDNN for conv3D to work
 utils.seed_everything(seed, cudnn_deterministic=False)
 
@@ -65,14 +79,11 @@ batch_size *= accelerator.num_processes
 # change num_epochs based on number of devices if using multi-gpu
 num_epochs *= accelerator.num_processes
 
-outdir = os.path.abspath(f'../train_logs/{model_name}')
-if not os.path.exists(outdir):
-    os.makedirs(outdir,exist_ok=True)
 if use_image_aug:
     import kornia
     from kornia.augmentation.container import AugmentationSequential
     img_augment = AugmentationSequential(
-        kornia.augmentation.RandomResizedCrop((224,224), (0.6,1), p=0.3),
+        kornia.augmentation.RandomResizedCrop((224, 224), (0.6, 1), p=0.3),
         kornia.augmentation.Resize((224, 224)),
         kornia.augmentation.RandomHorizontalFlip(p=0.5),
         kornia.augmentation.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1, p=0.3),
@@ -92,7 +103,7 @@ num_val = 982
 
 print('Prepping train and validation dataloaders...')
 train_dl, val_dl, num_train, num_val = utils.get_dataloaders(
-    batch_size,'images',
+    batch_size, 'images',
     num_devices=num_devices,
     num_workers=num_workers,
     train_url=train_url,
@@ -101,7 +112,7 @@ train_dl, val_dl, num_train, num_val = utils.get_dataloaders(
     num_train=num_train,
     num_val=num_val,
     val_batch_size=300,
-    cache_dir=data_path, #"/tmp/wds-cache",
+    cache_dir=data_path,
     seed=seed,
     voxels_key='nsdgeneral.npy',
     to_tuple=["voxels", "images", "coco"],
@@ -138,7 +149,7 @@ opt_grouped_parameters = [
     {'params': [p for n, p in voxel2clip.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 1e-2},
     {'params': [p for n, p in voxel2clip.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
 ]
-optimizer = torch.optim.AdamW(opt_grouped_parameters, lr=max_lr)
+optimizer = torch.optim.AdamW(opt_grouped_parameters, lr = max_lr)
 
 global_batch_size = batch_size * num_devices
 if lr_scheduler_type == 'linear':
@@ -184,8 +195,9 @@ else:
     clip_txt_path = 'nsd_data/clip_caps_final.pt'
 if not os.path.isfile(clip_txt_path):
     print('\nGenerating/Loading CLIP text embedding...')
-    annots_cur = np.load('nsd_data/COCO_73k_annots_curated.npy')
+    annots_cur = np.load(caption_path)
     clip_caps = torch.zeros((len(annots_cur), out_dim)).float().to(device)
+
     with torch.no_grad():
         for i, annots in enumerate(annots_cur):
             caps = list(annots[annots!=''])
@@ -204,12 +216,15 @@ nce_losses, val_nce_losses = [], []
 sim_losses, val_sim_losses = [], []
 best_val_loss = 1e9
 
+# pip install accelerate==0.19.0
 voxel2clip, optimizer, train_dl, val_dl, lr_scheduler = accelerator.prepare(
 voxel2clip, optimizer, train_dl, val_dl, lr_scheduler
 )
 
 print(f"{model_name} starting with epoch {epoch} / {num_epochs}")
-progress_bar = tqdm(range(epoch, num_epochs), ncols=1200, disable=(local_rank!=0))
+progress_bar = tqdm(range(epoch, num_epochs), ncols=100, disable=(local_rank!=0))
+
+loss_fn = torch.nn.MSELoss()
 
 for epoch in progress_bar:
     voxel2clip.train()
@@ -220,8 +235,10 @@ for epoch in progress_bar:
     bwd_percent_correct = 0.
     val_fwd_percent_correct = 0.
     val_bwd_percent_correct = 0.
+    loss_recon_sum = 0.
     loss_nce_sum = 0.
     val_loss_nce_sum = 0.
+    val_loss_recon_sum = 0.
 
     for train_i, (voxel, image, coco) in enumerate(train_dl):
         with torch.cuda.amp.autocast():
@@ -238,7 +255,10 @@ for epoch in progress_bar:
             clip_target_txt = clip_caps[coco.squeeze()].float()
 
             _, clip_voxels_proj = voxel2clip(voxel)
-            
+
+            clip_voxels_proj = clip_voxels_proj.squeeze(1)
+            loss_recon = loss_fn(clip_target_txt, clip_voxels_proj)
+
             clip_voxels_norm = F.normalize(clip_voxels_proj.flatten(1), dim=-1)
             clip_target_img_norm = F.normalize(clip_target_img.flatten(1), dim=-1)
             clip_target_txt_norm = F.normalize(clip_target_txt.flatten(1), dim=-1)
@@ -262,9 +282,21 @@ for epoch in progress_bar:
                     temp=.006, 
                     perm=perm, betas=betas, select=select)
                 loss_nce = loss_nce_t + loss_nce_i
-                  
-            loss_nce_sum += loss_nce.item()
-            loss = loss_nce #+ mse_loss(clip_target_txt_norm, clip_voxels_norm)
+    
+            # loss_nce_sum += loss_nce.item()
+            # loss = loss_nce #+ mse_loss(clip_target_txt_norm, clip_voxels_norm)
+
+            if use_rec_loss and use_nce_loss:
+                loss_recon_sum += loss_recon.item()
+                loss_nce_sum += loss_nce.item()
+                loss = loss_nce + rec_loss_weight * loss_recon 
+            elif use_rec_loss:
+                loss_recon_sum += loss_recon.item()
+                loss = loss_recon
+            elif use_nce_loss:
+                loss_nce_sum += loss_nce.item()
+                loss = loss_nce
+
             utils.check_loss(loss)
             
             accelerator.backward(loss)
@@ -277,8 +309,8 @@ for epoch in progress_bar:
 
             # forward and backward top 1 accuracy        
             labels = torch.arange(len(clip_target_txt_norm)).to(device) 
-            fwd_percent_correct += utils.topk(utils.batchwise_cosine_similarity(clip_voxels_norm, clip_target_txt_norm), labels, k=1)
-            bwd_percent_correct += utils.topk(utils.batchwise_cosine_similarity(clip_target_txt_norm, clip_voxels_norm), labels, k=1)
+            fwd_percent_correct += utils.topk(utils.batchwise_cosine_similarity(clip_voxels_norm, clip_target_txt_norm), labels, k=1).item()
+            bwd_percent_correct += utils.topk(utils.batchwise_cosine_similarity(clip_target_txt_norm, clip_voxels_norm), labels, k=1).item()
 
             if lr_scheduler_type is not None:
                 lr_scheduler.step()
@@ -294,39 +326,56 @@ for epoch in progress_bar:
                 clip_target_img = clip_extractor.embed_image(image).float()
                 clip_target_txt = clip_caps[coco.squeeze()].float()
 
-                clip_voxels, clip_voxels_proj = voxel2clip(voxel)
-                if hidden:
-                    clip_voxels = clip_voxels.view(len(voxel), -1, clip_size)
-                
-                aligned_clip_voxels = clip_voxels
+                _, clip_voxels_proj = voxel2clip(voxel)
+
+                clip_voxels_proj = clip_voxels_proj.squeeze(1)
+                val_loss_recon = loss_fn(clip_target_txt, clip_voxels_proj)
 
                 clip_voxels_norm = F.normalize(clip_voxels_proj.flatten(1), dim=-1)
                 clip_target_img_norm = F.normalize(clip_target_img.flatten(1), dim=-1)
                 clip_target_txt_norm = F.normalize(clip_target_txt.flatten(1), dim=-1)
 
-                val_loss_nce_i = utils.mixco_nce(
-                    clip_voxels_norm,
-                    clip_target_img_norm,
-                    temp=.006, 
-                    perm=None, betas=None, select=None)
+                if hidden:
+                    val_loss_nce = utils.mixco_nce(
+                        clip_voxels_norm,
+                        clip_target_txt_norm,
+                        temp=.006, 
+                        perm=None, betas=None, select=None) 
+                else:
+                    val_loss_nce_i = utils.mixco_nce(
+                        clip_voxels_norm,
+                        clip_target_img_norm,
+                        temp=.006, 
+                        perm=None, betas=None, select=None)
 
-                val_loss_nce_t = utils.mixco_nce(
-                    clip_voxels_norm,
-                    clip_target_txt_norm,
-                    temp=.006, 
-                    perm=None, betas=None, select=None)
-                
-                val_loss_nce = val_loss_nce_t + val_loss_nce_i
-                val_loss_nce_sum += val_loss_nce.item()
-                val_loss = val_loss_nce
+                    val_loss_nce_t = utils.mixco_nce(
+                        clip_voxels_norm,
+                        clip_target_txt_norm,
+                        temp=.006, 
+                        perm=None, betas=None, select=None)
+                    val_loss_nce = val_loss_nce_t + val_loss_nce_i
+
+                # val_loss_nce_sum += val_loss_nce.item()
+                # val_loss = val_loss_nce
+                if use_rec_loss and use_nce_loss:
+                    val_loss_recon_sum += val_loss_recon.item()
+                    val_loss_nce_sum += val_loss_nce.item()
+                    val_loss = val_loss_nce + rec_loss_weight * val_loss_recon 
+                elif use_rec_loss:
+                    val_loss_recon_sum += val_loss_recon.item()
+                    val_loss = val_loss_recon
+                elif use_nce_loss:
+                    val_loss_nce_sum += val_loss_nce.item()
+                    val_loss = val_loss_nce
+
                 utils.check_loss(val_loss)
                 val_losses.append(val_loss.item())
                 
                 val_sims_base += F.cosine_similarity(clip_target_txt_norm, clip_voxels_norm).mean().item()
                 
                 labels = torch.arange(len(clip_target_txt_norm)).to(device)
-                val_fwd_percent_correct += utils.topk(utils.batchwise_cosine_similarity(clip_voxels_norm, clip_target_txt_norm), labels, k=1)
-                val_bwd_percent_correct += utils.topk(utils.batchwise_cosine_similarity(clip_target_txt_norm, clip_voxels_norm), labels, k=1)
+                val_fwd_percent_correct += utils.topk(utils.batchwise_cosine_similarity(clip_voxels_norm, clip_target_txt_norm), labels, k=1).item()
+                val_bwd_percent_correct += utils.topk(utils.batchwise_cosine_similarity(clip_target_txt_norm, clip_voxels_norm), labels, k=1).item()
 
     if local_rank==0:        
         if (not save_at_end and ckpt_saving) or (save_at_end and epoch == num_epochs - 1):
@@ -337,24 +386,28 @@ for epoch in progress_bar:
                 save_ckpt('best')
             else:
                 print(f'not best - val_loss: {val_loss:.3f}, best_val_loss: {best_val_loss:.3f}')
-                
-        if utils.is_interactive():
-            clear_output(wait=True)
             
         logs = {"train/loss": np.mean(losses[-(train_i+1):]),
             "val/loss": np.mean(val_losses[-(val_i+1):]),
             "train/lr": lrs[-1],
             "train/num_steps": len(losses),
             "val/num_steps": len(val_losses),
+            "train/loss_recon": loss_recon_sum / (train_i + 1),
+            "train/loss_nce": loss_nce_sum / (train_i + 1),
+            "val/loss_recon": val_loss_recon_sum / (val_i + 1),
+            "val/loss_nce": val_loss_nce_sum / (val_i + 1),
             "train/cosine_sim_base": sims_base / (train_i + 1),
             "val/cosine_sim_base": val_sims_base / (val_i + 1),
             "train/fwd_pct_correct": fwd_percent_correct / (train_i + 1),
             "train/bwd_pct_correct": bwd_percent_correct / (train_i + 1),
             "val/val_fwd_pct_correct": val_fwd_percent_correct / (val_i + 1),
             "val/val_bwd_pct_correct": val_bwd_percent_correct / (val_i + 1),
-            "train/loss_nce": loss_nce_sum / (train_i + 1),
-            "val/loss_nce": val_loss_nce_sum / (val_i + 1)}
+            }
         progress_bar.set_postfix(**logs)
+
+        # save logs
+        with open(os.path.join(outdir, 'logs.txt'), 'a') as f:
+            f.write(json.dumps({'epoch': epoch, **logs}) + '\n')
 
         # Save model checkpoint and reconstruct
         save_ckpt(f'last')
@@ -364,14 +417,14 @@ for epoch in progress_bar:
                 import umap
                 print('umap plotting...')
                 combined = np.concatenate((clip_target_txt.flatten(1).detach().cpu().numpy(),
-                                            clip_voxels_proj.flatten(1).detach().cpu().numpy()),axis=0)
+                                            clip_voxels_proj.flatten(1).detach().cpu().numpy()), axis=0)
                 reducer = umap.UMAP(random_state=42)
                 embedding = reducer.fit_transform(combined)
 
-                colors=np.array([[0,0,1,.5] for i in range(len(clip_target_txt))])
-                colors=np.concatenate((colors, np.array([[0,1,0,.5] for i in range(len(clip_voxels_proj))])))
+                colors = np.array([[0, 0, 1, .5] for i in range(len(clip_target_txt))])
+                colors = np.concatenate((colors, np.array([[0, 1, 0, .5] for i in range(len(clip_voxels_proj))])))
 
-                fig = plt.figure(figsize=(5,5))
+                fig = plt.figure(figsize=(5, 5))
                 plt.scatter(
                     embedding[:, 0],
                     embedding[:, 1],
