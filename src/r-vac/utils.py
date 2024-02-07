@@ -1,25 +1,15 @@
 import numpy as np
 from torchvision import transforms
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import PIL
-from PIL import Image
 import random
 import os
-import matplotlib.pyplot as plt
-import pandas as pd
 import math
 import webdataset as wds
 import json
 import requests
-import io
-from urllib.request import Request, urlopen
-import socket
-from clip_retrieval.clip_client import ClipClient
-import time 
 import braceexpand
-from models import Clipper,OpenClipper
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

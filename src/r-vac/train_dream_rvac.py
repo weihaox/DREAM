@@ -1,12 +1,11 @@
 import os
 import sys
-import json
 import argparse
 import numpy as np
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torch
-import torch.nn as nn
-from tqdm import tqdm
+import torch.nn.functional as F
 import utils
 from models import Clipper, BrainNetwork
 
@@ -31,74 +30,23 @@ print("distributed =",distributed, "num_devices =", num_devices, "local rank =",
 
 # configurations
 parser = argparse.ArgumentParser(description="Model Training Configuration")
-parser.add_argument(
-    "--model_name", type=str, default="dream_rvac_training_demo",
-    help="name of model, used for ckpt saving",
-)
-parser.add_argument(
-    "--data_path", type=str, default="nsd_data",
-    help="Path to where NSD data is stored / where to download it to",
-)
-parser.add_argument(
-    "--subj",type=int, default=1, choices=[1,2,5,7],
-)
-parser.add_argument(
-    "--batch_size", type=int, default=320,
-    help="Batch size for training",
-)
-parser.add_argument(
-    "--hidden", action=argparse.BooleanOptionalAction, default=True,
-    help="if True, CLIP embeddings will come from last hidden layer (e.g., 257x768), rather than final layer (1x768)",
-)
-parser.add_argument(
-    "--clip_variant", type=str, default="ViT-L/14", choices=["RN50", "ViT-L/14", "ViT-B/32", "RN50x64"],
-    help='OpenAI clip variant',
-)
-parser.add_argument(
-    "--resume_from_ckpt", action=argparse.BooleanOptionalAction, default=False,
-    help="if not using wandb and want to resume from a ckpt",
-)
-parser.add_argument(
-    "--norm_embs", action=argparse.BooleanOptionalAction, default=True,
-    help="Do l2-norming of CLIP embeddings",
-)
-parser.add_argument(
-    "--use_image_aug", action=argparse.BooleanOptionalAction, default=True,
-    help="whether to use image augmentation",
-)
-parser.add_argument(
-    "--num_epochs", type=int, default=240,
-    help="number of epochs of training",
-)
-parser.add_argument(
-    "--plot_umap", action=argparse.BooleanOptionalAction, default=False,
-    help="Plot UMAP plots alongside reconstructions",
-)
-parser.add_argument(
-    "--lr_scheduler_type", type=str, default='cycle', choices=['cycle','linear'],
-)
-parser.add_argument(
-    "--ckpt_saving", action=argparse.BooleanOptionalAction, default=True,
-)
-parser.add_argument(
-    "--ckpt_interval", type=int, default=5,
-    help="save backup ckpt and reconstruct every x epochs",
-)
-parser.add_argument(
-    "--save_at_end", action=argparse.BooleanOptionalAction, default=False,
-    help="if True, saves best.ckpt at end of training. if False and ckpt_saving==True, will save best.ckpt whenever epoch shows best validation score",
-)
-parser.add_argument(
-    "--seed", type=int, default=42,
-)
-parser.add_argument(
-    "--max_lr", type=float, default=3e-4,
-)
-parser.add_argument(
-    "--use_projector",action=argparse.BooleanOptionalAction,default=True,
-    help="Additional MLP after the main MLP so model can separately learn a way to minimize NCE loss",
-)
-
+parser.add_argument("--model_name", type=str, default="dream_rvac_training_demo", help="name of model, used for ckpt saving")
+parser.add_argument("--data_path", type=str, default="nsd_data", help="Path to where NSD data is stored / where to download it to")
+parser.add_argument("--subj",type=int, default=1, choices=[1, 2, 5, 7])
+parser.add_argument("--batch_size", type=int, default=320, help="Batch size for training")
+parser.add_argument("--hidden", action=argparse.BooleanOptionalAction, default=False, help="if True, CLIP embeddings are from last hidden layer (257x768) rather than final layer (1x768)")
+parser.add_argument("--clip_variant", type=str, default="ViT-L/14", choices=["RN50", "ViT-L/14", "ViT-B/32", "RN50x64"])
+parser.add_argument("--norm_embs", action=argparse.BooleanOptionalAction, default=False, help="Do l2-norming of CLIP embeddings")
+parser.add_argument("--use_image_aug", action=argparse.BooleanOptionalAction, default=True, help="whether to use image augmentation",)
+parser.add_argument("--num_epochs", type=int, default=240, help="number of epochs of training")
+parser.add_argument("--plot_umap", action=argparse.BooleanOptionalAction, default=False, help="Plot UMAP plots alongside reconstructions")
+parser.add_argument("--lr_scheduler_type", type=str, default='cycle', choices=['cycle', 'linear'])
+parser.add_argument("--ckpt_saving", action=argparse.BooleanOptionalAction, default=True)
+parser.add_argument("--ckpt_interval", type=int, default=5, help="save backup ckpt and reconstruct every x epochs",)
+parser.add_argument("--save_at_end", action=argparse.BooleanOptionalAction, default=False)
+parser.add_argument("--seed", type=int, default=42)
+parser.add_argument("--max_lr", type=float, default=3e-4)
+parser.add_argument("--use_projector", action=argparse.BooleanOptionalAction, default=True)
 args = parser.parse_args()
 
 # create global variables without the args prefix
@@ -112,7 +60,7 @@ utils.seed_everything(seed, cudnn_deterministic=False)
 max_lr *= accelerator.num_processes
     
 # change batch size based on number of devices if using multi-gpu
-# batch_size *= accelerator.num_processes
+batch_size *= accelerator.num_processes
 
 # change num_epochs based on number of devices if using multi-gpu
 num_epochs *= accelerator.num_processes
@@ -165,52 +113,25 @@ print('Creating Clipper...')
 clip_sizes = {"RN50": 1024, "ViT-L/14": 768, "ViT-B/32": 512, "ViT-H-14": 1024}
 clip_size = clip_sizes[clip_variant]
 if hidden:
-    print("Using hidden layer CLIP space (Versatile Diffusion)")
-    if not norm_embs:
-        print("WARNING: YOU WANT NORMED EMBEDDINGS FOR VERSATILE DIFFUSION!")
+    print("Using hidden layer CLIP space")
     clip_extractor = Clipper(clip_variant, device=device, hidden_state=True, norm_embs=norm_embs)
     out_dim = 77 * clip_size
 else:
-    print("Using final layer CLIP space (Stable Diffusion Img Variations)")
-    if norm_embs:
-        print("WARNING: YOU WANT UN-NORMED EMBEDDINGS FOR IMG VARIATIONS!")
+    print("Using final layer CLIP space")
     clip_extractor = Clipper(clip_variant, device=device, hidden_state=False, norm_embs=norm_embs)
     out_dim = clip_size
 print("out_dim:", out_dim)
 
 print('Creating voxel2clip...')
-if subj == 1:
-    num_voxels = 15724
-elif subj == 2:
-    num_voxels = 14278
-elif subj == 3:
-    num_voxels = 15226
-elif subj == 4:
-    num_voxels = 13153
-elif subj == 5:
-    num_voxels = 13039
-elif subj == 6:
-    num_voxels = 17907
-elif subj == 7:
-    num_voxels = 12682
-elif subj == 8:
-    num_voxels = 14386
-voxel2clip_kwargs = dict(in_dim=num_voxels,out_dim=out_dim,clip_size=clip_size,use_projector=use_projector)
+voxels_per_subj = {1: 15724, 2: 14278, 3: 15226, 4: 13153, 5: 13039, 6: 17907, 7: 12682, 8: 14386}
+num_voxels = voxels_per_subj.get(subj)
+voxel2clip_kwargs = dict(in_dim=num_voxels, out_dim=out_dim, clip_size=clip_size, use_projector=use_projector)
 voxel2clip = BrainNetwork(**voxel2clip_kwargs)
-    
-# load from ckpt
-voxel2clip_path = "None"
-if voxel2clip_path!="None":
-    checkpoint = torch.load(voxel2clip_path, map_location='cpu')
-    voxel2clip.load_state_dict(checkpoint['model_state_dict'],strict=False)
-    del checkpoint
     
 print("params of voxel2clip:")
 if local_rank==0:
     utils.count_params(voxel2clip)
-
 voxel2clip.requires_grad_(True)
-
 
 no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
 opt_grouped_parameters = [
@@ -262,7 +183,7 @@ if hidden:
 else:
     clip_txt_path = 'nsd_data/clip_caps_final.pt'
 if not os.path.isfile(clip_txt_path):
-    print('\nGenerating Loading CLIP text embedding...')
+    print('\nGenerating/Loading CLIP text embedding...')
     annots_cur = np.load('nsd_data/COCO_73k_annots_curated.npy')
     clip_caps = torch.zeros((len(annots_cur), out_dim)).float().to(device)
     with torch.no_grad():
@@ -270,12 +191,11 @@ if not os.path.isfile(clip_txt_path):
             caps = list(annots[annots!=''])
             clip_text = clip_extractor.embed_text(caps).float()
             clip_caps[i] = clip_text.mean(0)
-    # import ipdb; ipdb.set_trace()
     torch.save(clip_caps, clip_txt_path)
 else:
     print('\nLoading CLIP text embedding...')
     clip_caps = torch.load(clip_txt_path)
-print("clip_caps.shape:",clip_caps.shape)
+print("clip_caps.shape:", clip_caps.shape)
 
 # main loop for training
 epoch = 0
@@ -317,14 +237,12 @@ for epoch in progress_bar:
             clip_target_img = clip_extractor.embed_image(image).float()  
             clip_target_txt = clip_caps[coco.squeeze()].float()
 
-            clip_voxels, clip_voxels_proj = voxel2clip(voxel)
-            if hidden:
-                clip_voxels = clip_voxels.view(len(voxel), -1, clip_size)
+            _, clip_voxels_proj = voxel2clip(voxel)
             
-            clip_voxels_norm = nn.functional.normalize(clip_voxels_proj.flatten(1), dim=-1)
-            clip_target_img_norm = nn.functional.normalize(clip_target_img.flatten(1), dim=-1)
-            clip_target_txt_norm = nn.functional.normalize(clip_target_txt.flatten(1), dim=-1)
-            import ipdb; ipdb.set_trace()
+            clip_voxels_norm = F.normalize(clip_voxels_proj.flatten(1), dim=-1)
+            clip_target_img_norm = F.normalize(clip_target_img.flatten(1), dim=-1)
+            clip_target_txt_norm = F.normalize(clip_target_txt.flatten(1), dim=-1)
+
             if hidden:
                 loss_nce = utils.mixco_nce(
                     clip_voxels_norm,
@@ -355,7 +273,7 @@ for epoch in progress_bar:
             losses.append(loss.item())
             lrs.append(optimizer.param_groups[0]['lr'])
 
-            sims_base += nn.functional.cosine_similarity(clip_target_txt_norm, clip_voxels_norm).mean().item()
+            sims_base += F.cosine_similarity(clip_target_txt_norm, clip_voxels_norm).mean().item()
 
             # forward and backward top 1 accuracy        
             labels = torch.arange(len(clip_target_txt_norm)).to(device) 
@@ -382,9 +300,9 @@ for epoch in progress_bar:
                 
                 aligned_clip_voxels = clip_voxels
 
-                clip_voxels_norm = nn.functional.normalize(clip_voxels_proj.flatten(1), dim=-1)
-                clip_target_img_norm = nn.functional.normalize(clip_target_img.flatten(1), dim=-1)
-                clip_target_txt_norm = nn.functional.normalize(clip_target_txt.flatten(1), dim=-1)
+                clip_voxels_norm = F.normalize(clip_voxels_proj.flatten(1), dim=-1)
+                clip_target_img_norm = F.normalize(clip_target_img.flatten(1), dim=-1)
+                clip_target_txt_norm = F.normalize(clip_target_txt.flatten(1), dim=-1)
 
                 val_loss_nce_i = utils.mixco_nce(
                     clip_voxels_norm,
@@ -404,8 +322,7 @@ for epoch in progress_bar:
                 utils.check_loss(val_loss)
                 val_losses.append(val_loss.item())
                 
-                # import ipdb; ipdb.set_trace()
-                val_sims_base += nn.functional.cosine_similarity(clip_target_txt_norm, clip_voxels_norm).mean().item()
+                val_sims_base += F.cosine_similarity(clip_target_txt_norm, clip_voxels_norm).mean().item()
                 
                 labels = torch.arange(len(clip_target_txt_norm)).to(device)
                 val_fwd_percent_correct += utils.topk(utils.batchwise_cosine_similarity(clip_voxels_norm, clip_target_txt_norm), labels, k=1)

@@ -1,11 +1,10 @@
-import os
 import numpy as np
-from torchvision import transforms
+from functools import partial
+import clip
 import torch
 import torch.nn as nn
-import PIL
-import clip
-from functools import partial
+import torch.nn.functional as F
+from torchvision import transforms
 
 class Clipper(torch.nn.Module):
     def __init__(self, clip_variant, clamp_embs=False, norm_embs=False,
@@ -85,7 +84,7 @@ class Clipper(torch.nn.Module):
                 # normalize all tokens by cls token's norm
                 clip_emb = clip_emb / torch.norm(clip_emb[:, 0], dim=-1).reshape(-1, 1, 1)
             else:
-                clip_emb = nn.functional.normalize(clip_emb, dim=-1)
+                clip_emb = F.normalize(clip_emb, dim=-1)
         return clip_emb
 
     def embed_text(self, text_samples):
@@ -94,7 +93,7 @@ class Clipper(torch.nn.Module):
         if self.clamp_embs:
             clip_text = torch.clamp(clip_text, -1.5, 1.5)
         if self.norm_embs:
-            clip_text = nn.functional.normalize(clip_text, dim=-1)
+            clip_text = F.normalize(clip_text, dim=-1)
         return clip_text
 
     def embed_curated_annotations(self, annots):
