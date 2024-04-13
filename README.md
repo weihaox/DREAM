@@ -35,8 +35,9 @@
 </div>
 
 ## News :triangular_flag_on_post:
-- [2022/11/14] Add instructions for R-VAC and R-PKM.
-- [2022/10/23] DREAM is accepted by WACV 2024.
+- [2024/04/11] Check out the multimodal decoding method [UMBRAE](https://weihaox.github.io/UMBRAE) and benchmark [BrainHub](https://github.com/weihaox/BrainHub).
+- [2023/11/14] Add instructions for R-VAC and R-PKM.
+- [2023/10/23] DREAM is accepted by WACV 2024.
 - [2023/10/03] Both <a href="https://weihaox.github.io/DREAM">project</a> and <a href="https://arxiv.org/abs/2310.02265">arXiv</a> are available.
 
 ## Installation
